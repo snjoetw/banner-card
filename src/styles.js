@@ -2,14 +2,16 @@ import { css } from "lit-element";
 
 export default css`
   :host {
-    --bc-error-color: var(--lumo-error-color);
-    --bc-font-size-heading: 3em;
-    --bc-font-size-entity-value: 1.5em;
-    --bc-font-size-media-title: 0.9em;
-    --bc-spacing: 4px;
-    --bc-button-size: 32px;
-    --bc-heading-color-dark: var(--primary-text-color);
-    --bc-heading-color-light: #fff;
+    --bc-font-size-heading: var(--banner-card-heading-size, 3em);
+    --bc-font-size-entity-value: var(--banner-card-entity-value-size, 1.5em);
+    --bc-font-size-media-title: var(--banner-card-media-title-size, 0.9em);
+    --bc-spacing: var(--banner-card-spacing, 4px);
+    --bc-button-size: var(--banner-card-button-size, 32px);
+    --bc-heading-color-dark: var(
+      --banner-card-heading-color-dark,
+      var(--primary-text-color)
+    );
+    --bc-heading-color-light: var(--banner-card-heading-color-light, #fff);
   }
   ha-card {
     display: flex;
@@ -21,10 +23,6 @@ export default css`
     width: var(--bc-button-size);
     height: var(--bc-button-size);
     padding: var(--bc-spacing);
-  }
-
-  ha-card.not-found {
-    background-color: var(--lumo-error-color);
   }
 
   .heading {
@@ -42,24 +40,10 @@ export default css`
     width: 100%;
   }
 
-  .error {
-    display: flex;
-    padding: calc(var(--bc-spacing) * 4)
-    color: white;
-    width: 100%;
-    justify-content: center;
-    align-items: center;
-    font-weight: 700;
-    font-size: 1.4rem;
-  }
   .entities {
     padding: calc(var(--bc-spacing) * 2) 0px;
     color: white;
-    display: flex;
-    flex-direction: row;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    margin-left: -1px;
+    display: grid;
   }
 
   .entity-state {
@@ -68,10 +52,11 @@ export default css`
     align-items: center;
     margin: calc(var(--bc-spacing) * 2) 0;
     box-shadow: -1px 0px 0 0 white;
+    width: 100%;
   }
 
   .media-title {
-    flex: 1 0 ;
+    flex: 1 0;
     overflow: hidden;
     font-weight: 300;
     font-size: var(--bc-font-size-media-title);
@@ -113,23 +98,21 @@ export default css`
     justify-content: center;
   }
 
-  .entity-value ha-icon {
-    color: white;
+  .entity-value.error {
+    display: inline-block;
+    word-wrap: break-word;
+    font-size: 16px;
+    width: 90%;
   }
 
-  .toggle {
-    cursor: pointer;
-    --paper-toggle-button-unchecked-bar-color: rgba(255, 255, 255, 0.4);
-    --paper-toggle-button-unchecked-button-color: rgba(255, 255, 255, 0.4);
-    --paper-toggle-button-unchecked-ink-color: rgba(1, 1, 1, 0.6);
-
-    --paper-toggle-button-checked-bar-color: white;
-    --paper-toggle-button-checked-button-color: white;
-    --paper-toggle-button-checked-ink-color: white;
+  .entity-value ha-icon {
+    color: white;
   }
 
   mwc-button {
     --mdc-theme-primary: white;
   }
-
+  mwc-switch {
+    --mdc-theme-secondary: white;
+  }
 `;

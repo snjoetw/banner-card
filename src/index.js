@@ -10,19 +10,6 @@ import filterEntity from "./filterEntity";
 // entities:
 //   - entity: light.fibaro_system_fgd212_dimmer_2_level
 
-function renderError(heading, error) {
-  return html`
-    <ha-card class="not-found">
-      <h2 class="heading">
-        ${heading}
-      </h2>
-      <div class="overlay-strip">
-        <div class="error">${error}</div>
-      </div>
-    </ha-card>
-  `;
-}
-
 const ICON_REGEXP = /^(mdi|hass):/;
 function isIcon(value) {
   return typeof value === "string" && value.match(ICON_REGEXP);
@@ -32,10 +19,9 @@ class BannerCard extends LitElement {
   static get properties() {
     return {
       config: Object,
-      gridSizes: Array,
+      color: String,
       entities: Array,
       entityValues: Array,
-      error: String,
       rowSize: Number,
       _hass: Object
     };
@@ -49,7 +35,6 @@ class BannerCard extends LitElement {
     super();
     this.config = {};
     this.entities = [];
-    this.error = null;
     this._hass = {};
   }
 
@@ -61,6 +46,14 @@ class BannerCard extends LitElement {
     this.entities = (config.entities || []).map(parseEntity);
     this.config = config;
 
+    this.color =
+      config.color ||
+      readableColor(
+        config.background,
+        "var(--bc-heading-color-light)",
+        "var(--bc-heading-color-dark)"
+      );
+
     if (typeof config.row_size !== "undefined") {
       if (config.row_size < 1) {
         throw new Error("row_size must be at least 1");
@@ -68,16 +61,10 @@ class BannerCard extends LitElement {
       this.rowSize = config.row_size;
     }
     this.rowSize = this.rowSize || 3;
-
-    // calculate grid
-    this.gridSizes = Array(this.rowSize)
-      .fill(this.rowSize)
-      .map((size, index) => Math.round((1 / size) * 100) * (index + 1));
   }
 
   set hass(hass) {
     this._hass = hass;
-    this.error = null;
 
     // Parse new state values for _entities_
     this.entityValues = this.entities
@@ -88,8 +75,10 @@ class BannerCard extends LitElement {
   parseEntity(config) {
     const hass = this._hass;
     if (!hass.states.hasOwnProperty(config.entity)) {
-      this.error = `Can't find entity ${config.entity}`;
-      return config;
+      return {
+        ...config,
+        error: `Entity not ready`
+      };
     }
     const state = hass.states[config.entity];
     const attributes = state.attributes;
@@ -103,10 +92,20 @@ class BannerCard extends LitElement {
       domain: config.entity.split(".")[0]
     };
 
-    // Will set .value to be the key from entities.*.map_value.{key} that matches the current `state`
+    // Will either:
+    // set .value to be the key from entities.*.map_value.{key} that matches the current `state` if the value is a string
+    // or set all values as dynamicData if it is an object
     const dynamicData = {};
     if (config.map_state && state.state in config.map_state) {
-      dynamicData.value = config.map_state[state.state];
+      const mappedState = config.map_state[state.state];
+      const mapStateType = typeof mappedState;
+      if (mapStateType === "string") {
+        dynamicData.value = mappedState;
+      } else if (mapStateType === "object") {
+        Object.entries(mappedState).forEach(([key, val]) => {
+          dynamicData[key] = val;
+        });
+      }
     }
 
     return {
@@ -118,11 +117,9 @@ class BannerCard extends LitElement {
 
   grid(index = 1) {
     if (index === "full" || index > this.rowSize) {
-      index = this.rowSize;
+      return `grid-column: span ${this.rowSize};`;
     }
-
-    const width = this.gridSizes[index - 1];
-    return `flex: 0 0 ${width}%; width: ${width}%;`;
+    return `grid-column: span ${index};`;
   }
 
   // Factory function to make it a little bit easier to create
@@ -132,10 +129,6 @@ class BannerCard extends LitElement {
   }
 
   render() {
-    if (this.error) {
-      return renderError(this.config.heading, this.error);
-    }
-
     return html`
       <ha-card style="background: ${this.config.background};">
         ${this.renderHeading()} ${this.renderEntities()}
@@ -148,15 +141,9 @@ class BannerCard extends LitElement {
       return null;
     }
 
-    const color = readableColor(
-      this.config.background,
-      "var(--bc-heading-color-light)",
-      "var(--bc-heading-color-dark)"
-    );
-
     const onClick = () => this.config.link && this.navigate(this.config.link);
     return html`
-      <h2 class="heading" style="color: ${color};" @click=${onClick}>
+      <h2 class="heading" @click=${onClick} style="color: ${this.color};">
         ${this.config.heading}
       </h2>
     `;
@@ -169,8 +156,20 @@ class BannerCard extends LitElement {
 
     return html`
       <div class="overlay-strip">
-        <div class="entities">
+        <div
+          class="entities"
+          style="grid-template-columns: repeat(${this.rowSize}, 1fr);"
+        >
           ${this.entityValues.map(config => {
+            if (config.error) {
+              return html`
+                <div class="entity-state" style="${this.grid(config.size)}">
+                  <span class="entity-name">${config.error}</span>
+                  <span class="entity-value error">${config.entity}</span>
+                </div>
+              `;
+            }
+
             const onClick = () => this.openEntityPopover(config.entity);
             const options = { ...config, onClick };
 
@@ -194,9 +193,9 @@ class BannerCard extends LitElement {
             if (!config.attribute) {
               switch (config.domain) {
                 case "light":
-                  return this.renderDomainLight(options);
                 case "switch":
-                  return this.renderDomainSwitch(options);
+                case "input_boolean":
+                  return this.renderAsToggle(options);
                 case "cover":
                   return this.renderDomainCover(options);
                 case "media_player":
@@ -210,21 +209,31 @@ class BannerCard extends LitElement {
     `;
   }
 
-  renderDomainDefault({ value, unit, image, icon, name, size, onClick }) {
-    let htmlContent;
+  renderValue({ icon, value, image, action, click }, fallback) {
     if (icon || isIcon(value)) {
-      htmlContent = html`
-        <ha-icon icon="${icon || value}"></ha-icon>
+      return html`
+        <ha-icon .icon="${icon || value}" @click=${click}></ha-icon>
       `;
     } else if (image === true) {
-      htmlContent = html`
-        <state-badge style="background-image: url(${value});"></state-badge>
-      `;
-    } else {
-      htmlContent = html`
-        ${value} ${unit}
+      return html`
+        <state-badge
+          style="background-image: url(${value});"
+          @click=${click}
+        ></state-badge>
       `;
     }
+
+    return fallback();
+  }
+
+  renderDomainDefault({ value, unit, image, icon, name, size, onClick }) {
+    const htmlContent = this.renderValue(
+      { icon, image, value, click: onClick },
+      () =>
+        html`
+          ${value} ${unit}
+        `
+    );
     return html`
       <div class="entity-state" style="${this.grid(size)}" @click=${onClick}>
         <span class="entity-name">${name}</span>
@@ -234,27 +243,14 @@ class BannerCard extends LitElement {
   }
 
   renderCustom({ value, unit, action, image, icon, name, size, onClick }) {
-    let htmlContent;
-    if (icon || isIcon(value)) {
-      htmlContent = html`
-        <paper-icon-button
-          icon="${icon || value}"
-          role="button"
-          @click=${action}
-        ></paper-icon-button>
-      `;
-    } else if (image === true) {
-      htmlContent = html`
-        <state-badge @click=${action} style="background-image: url(${value});">
-        </state-badge>
-      `;
-    } else {
-      htmlContent = html`
+    const htmlContent = this.renderValue(
+      { icon, image, value, click: action },
+      () => html`
         <mwc-button ?dense=${true} @click=${action}>
           ${value} ${unit}
         </mwc-button>
-      `;
-    }
+      `
+    );
     return html`
       <div class="entity-state" style="${this.grid(size)}">
         <span class="entity-name" @click=${onClick}>${name}</span>
@@ -306,32 +302,16 @@ class BannerCard extends LitElement {
     `;
   }
 
-  renderDomainLight({ onClick, size, name, state, entity }) {
+  renderAsToggle({ onClick, size, name, state, domain, entity }) {
     return html`
       <div class="entity-state" style="${this.grid(size)}">
         <span class="entity-name" @click=${onClick}>${name}</span>
         <span class="entity-value">
-          <paper-toggle-button
-            class="toggle"
+          <mwc-switch
             ?checked=${state === "on"}
-            @click=${this._service("light", "toggle", entity)}
-          />
-        </span>
-      </div>
-    `;
-  }
-
-  renderDomainSwitch({ onClick, size, name, state, entity }) {
-    return html`
-      <div class="entity-state" style="${this.grid(size)}">
-        <span class="entity-name" @click=${onClick}>${name}</span>
-        <span class="entity-value">
-          <paper-toggle-button
-            class="toggle"
-            ?checked=${state === "on"}
-            @click=${this._service("switch", "toggle", entity)}
+            @click=${this._service(domain, "toggle", entity)}
           >
-          </paper-toggle-button>
+          </mwc-switch>
         </span>
       </div>
     `;
